@@ -2,4 +2,4 @@ polyinterface>=2.0.0
 markdown2
 cryptography>=2.3
 requests>=2.20.0
-pylutron_caseta
+pylutron_caseta==0.6.0

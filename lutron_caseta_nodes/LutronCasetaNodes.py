@@ -21,13 +21,16 @@ class BaseNode(polyinterface.Node):
 
     def send_command(self, device, value):
         LOGGER.info("Sending value to Smart Bridge for device {}: {}".format(device, value))
-        if not self.sb.is_connected():
-            LOGGER.info("Not connected to bridge, reconnecting...")
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self.sb.connect())
+        self.controller.is_connected()
         result = self.sb.set_value(device, value)
         LOGGER.info("send_command result: {}".format(result))
 
+    def update(self,id,data):
+        # Do nothing for now
+        pass
+        #LOGGER.info("update: {} {}".format(id,data))
+        #val = self.sb.is_on(id)
+        #LOGGER.info("update: {}".format(val))
 
 class Scene(BaseNode):
     def activate(self, command):

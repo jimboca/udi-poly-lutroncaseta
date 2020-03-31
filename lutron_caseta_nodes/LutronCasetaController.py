@@ -5,6 +5,7 @@ import json
 import requests
 import socket
 import ssl
+import logging
 
 from cryptography import x509
 from cryptography.x509.oid import NameOID
@@ -18,6 +19,9 @@ from pylutron_caseta.smartbridge import Smartbridge
 
 from lutron_caseta_nodes.LutronCasetaNodes import SerenaHoneycombShade, QsWirelessShade, Scene
 
+# We need an event loop for  pylutron_caseta since we run in a
+# thread which doesn't have a loop
+mainloop = asyncio.get_event_loop()
 
 LOGGER = polyinterface.LOGGER
 
@@ -45,7 +49,6 @@ AUTHORIZE_URL = ("%soauth/authorize?%s" % (BASE_URL,
                                                "redirect_uri": REDIRECT_URI,
                                                "response_type": "code"
                                            })))
-
 
 class LutronCasetaController(polyinterface.Controller):
     def __init__(self, polyglot):
@@ -162,20 +165,28 @@ class LutronCasetaController(polyinterface.Controller):
 
         return leap_response['Body']['PingResponse']['LEAPVersion']
 
-    def bridge_connect(self):
-        asyncio.set_event_loop(asyncio.new_event_loop())
-        loop = asyncio.get_event_loop()
+    # Did it this way based on "Async Fron Sync" here
+    # https://www.aeracode.org/2018/02/19/python-async-simplified/
+    async def _bridge_connect(self):
         self.sb = Smartbridge.create_tls(hostname=self.lutron_bridge_ip,
                                          keyfile='./caseta.key',
                                          certfile='./caseta.crt',
                                          ca_certs='caseta-bridge.crt',
-                                         loop=loop)
-        loop.run_until_complete(self.sb.connect())
+                                         )
+        await self.sb.connect()
         if self.sb.is_connected():
             LOGGER.info("Successfully connected to bridge!")
         else:
             LOGGER.error("Could not connect to bridge")
 
+    def bridge_connect(self):
+        mainloop.run_until_complete(self._bridge_connect())
+
+    def is_connected(self):
+        if not self.controller.is_connected():
+            LOGGER.info("Not connected to bridge, reconnecting...")
+            self.bridge_connect()
+            
     def start(self):
         LOGGER.info('Started LutronCaseta NodeServer')
         self.poly.add_custom_config_docs("<b>To obtain oauth code, follow <a href='{}' target='_blank'>this link</a> and copy the 'code' portion of the error page url</b>".format(AUTHORIZE_URL))
@@ -183,7 +194,11 @@ class LutronCasetaController(polyinterface.Controller):
         serverdata = self.poly.get_server_data(check_profile=True)
         self.setDriver('ST', 1)
         LOGGER.info('Started Lutron Caseta NodeServer {}'.format(serverdata['version']))
+        # TODO: Allow controlling from Polyglot UI or ISY Driver...
+        #logging.getLogger('pylutron_caseta').setLevel(logging.DEBUG)
+        asyncio.set_event_loop(mainloop)
         self.hb = 0
+        self.devices = dict()
         self.heartbeat()
         self.check_params()
         if not self.lutron_bridge_ip and not self.oauth_code:
@@ -206,7 +221,6 @@ class LutronCasetaController(polyinterface.Controller):
             self.bridge_connect()
 
         ssl_socket.close()
-
         self.discover()
 
     def shortPoll(self):
@@ -216,7 +230,7 @@ class LutronCasetaController(polyinterface.Controller):
         or longPoll. No need to Super this method the parent version does nothing.
         The timer can be overriden in the server.json.
         """
-        pass
+        self.update_status()
 
     def longPoll(self):
         """
@@ -235,6 +249,7 @@ class LutronCasetaController(polyinterface.Controller):
         issue a reportDrivers() to each node manually.
         """
         self.check_params()
+        self.update_status()
         for node in self.nodes:
             self.nodes[node].reportDrivers()
 
@@ -251,6 +266,12 @@ class LutronCasetaController(polyinterface.Controller):
         else:
             self.reportCmd("DOF",2)
             self.hb = 0
+
+    def update_status(self):
+        devices = self.sb.get_devices()
+        for device_id, device in devices.items():
+            if device_id in self.devices:
+                self.devices[device_id].update(device_id,device)
 
     def discover(self, *args, **kwargs):
         """
@@ -276,7 +297,7 @@ class LutronCasetaController(polyinterface.Controller):
                 LOGGER.error("Unknown Node Type: {}".format(device))
                 continue
 
-            self.addNode(
+            self.devices[device_id] = self.addNode(
                 NodeType(
                     self,
                     self.address,
