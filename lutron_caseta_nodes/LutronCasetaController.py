@@ -183,7 +183,7 @@ class LutronCasetaController(polyinterface.Controller):
         mainloop.run_until_complete(self._bridge_connect())
 
     def is_connected(self):
-        if not self.controller.is_connected():
+        if not self.sb.is_connected():
             LOGGER.info("Not connected to bridge, reconnecting...")
             self.bridge_connect()
 
