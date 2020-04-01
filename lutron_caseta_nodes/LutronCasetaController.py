@@ -186,7 +186,7 @@ class LutronCasetaController(polyinterface.Controller):
         if not self.controller.is_connected():
             LOGGER.info("Not connected to bridge, reconnecting...")
             self.bridge_connect()
-            
+
     def start(self):
         LOGGER.info('Started LutronCaseta NodeServer')
         self.poly.add_custom_config_docs("<b>To obtain oauth code, follow <a href='{}' target='_blank'>this link</a> and copy the 'code' portion of the error page url</b>".format(AUTHORIZE_URL))
@@ -259,7 +259,7 @@ class LutronCasetaController(polyinterface.Controller):
         Sends a DON/DOF called by start and longPoll which allow users to
         monitor that the nodeserver is still running
         """
-        LOGGER.debug("heartbeat: {}".format(self.hb))
+        #LOGGER.debug("heartbeat: {}".format(self.hb))
         if self.hb == 0:
             self.reportCmd("DON",2)
             self.hb = 1
