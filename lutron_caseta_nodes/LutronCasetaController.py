@@ -195,7 +195,7 @@ class LutronCasetaController(polyinterface.Controller):
         self.setDriver('ST', 1)
         LOGGER.info('Started Lutron Caseta NodeServer {}'.format(serverdata['version']))
         # TODO: Allow controlling from Polyglot UI or ISY Driver...
-        #logging.getLogger('pylutron_caseta').setLevel(logging.DEBUG)
+        logging.getLogger('pylutron_caseta').setLevel(logging.DEBUG)
         asyncio.set_event_loop(mainloop)
         self.hb = 0
         self.devices = dict()
