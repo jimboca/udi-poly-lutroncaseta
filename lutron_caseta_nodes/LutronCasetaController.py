@@ -186,6 +186,7 @@ class LutronCasetaController(polyinterface.Controller):
         if not self.sb.is_connected():
             LOGGER.info("Not connected to bridge, reconnecting...")
             self.bridge_connect()
+        return self.sb.is_connected()
 
     def start(self):
         LOGGER.info('Started LutronCaseta NodeServer')
