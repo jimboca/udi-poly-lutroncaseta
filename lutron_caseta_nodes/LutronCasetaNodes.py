@@ -21,7 +21,7 @@ class BaseNode(polyinterface.Node):
 
     def send_command(self, device, value):
         LOGGER.info("Sending value to Smart Bridge for device {}: {}".format(device, value))
-        LOGGER.info("is_connected={}".format(self.controller.is_connected())
+        LOGGER.info("is_connected={}".format(self.controller.is_connected()))
         result = self.sb.set_value(device, value)
         LOGGER.info("send_command result: {}".format(result))
 
@@ -37,7 +37,7 @@ class Scene(BaseNode):
         LOGGER.info("activate: command {}".format(command))
         address = command['address'].replace('scene', '', 1)
         LOGGER.info("activate: address {}".format(address))
-        LOGGER.info("is_connected={}".format(self.controller.is_connected())
+        LOGGER.info("is_connected={}".format(self.controller.is_connected()))
         self.sb.activate_scene(address)
 
     drivers = []
