@@ -7,6 +7,10 @@ import socket
 import ssl
 import logging
 
+LOGGER = polyinterface.LOGGER
+#logging.basicConfig(format='%(asctime)s %(levelname)s:%(message)s', level=logging.DEBUG)
+
+
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.backends import default_backend
@@ -22,8 +26,6 @@ from lutron_caseta_nodes.LutronCasetaNodes import SerenaHoneycombShade, QsWirele
 # We need an event loop for  pylutron_caseta since we run in a
 # thread which doesn't have a loop
 mainloop = asyncio.get_event_loop()
-
-LOGGER = polyinterface.LOGGER
 
 LOGIN_SERVER = "device-login.lutron.com"
 APP_CLIENT_ID = ("e001a4471eb6152b7b3f35e549905fd8589dfcf57eb680b6fb37f20878c"
@@ -55,6 +57,13 @@ class LutronCasetaController(polyinterface.Controller):
         super().__init__(polyglot)
         self.name = 'LutronCaseta Controller'
         self.poly.onConfig(self.process_config)
+        # TODO: Allow controlling from Polyglot UI or ISY Driver...
+        level = logging.DEBUG
+        logging.getLogger('pylutron_caseta.smartbridge').setLevel(level)
+        logging.getLogger('pylutron_caseta.leap').setLevel(level)
+        logging.getLogger('requests').setLevel(level)
+        logging.getLogger('ssl').setLevel(level)
+        logging.getLogger('socket').setLevel(level)
 
     def get_priv_key(self):
         LOGGER.info("Getting private key")
@@ -195,8 +204,6 @@ class LutronCasetaController(polyinterface.Controller):
         serverdata = self.poly.get_server_data(check_profile=True)
         self.setDriver('ST', 1)
         LOGGER.info('Started Lutron Caseta NodeServer {}'.format(serverdata['version']))
-        # TODO: Allow controlling from Polyglot UI or ISY Driver...
-        logging.getLogger('pylutron_caseta').setLevel(logging.DEBUG)
         asyncio.set_event_loop(mainloop)
         self.hb = 0
         self.devices = dict()
