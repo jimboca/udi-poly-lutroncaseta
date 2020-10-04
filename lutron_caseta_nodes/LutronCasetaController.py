@@ -1,4 +1,4 @@
-import polyinterface
+from polyinterface import Controller,LOG_HANDLER,LOGGER
 
 import asyncio
 import json
@@ -6,10 +6,18 @@ import requests
 import socket
 import ssl
 import logging
+import time
+from threading import Thread,Event
 
-LOGGER = polyinterface.LOGGER
+#import pylutron_caseta.smartbridge as smartbridge
+from pylutron_caseta.smartbridge import Smartbridge
+
+from pylutron_caseta import (FAN_MEDIUM, OCCUPANCY_GROUP_OCCUPIED,
+                             OCCUPANCY_GROUP_UNOCCUPIED)
+
 #logging.basicConfig(format='%(asctime)s %(levelname)s:%(message)s', level=logging.DEBUG)
-
+#LOG_HANDLER.set_log_format('%(asctime)s %(threadName)-10s %(name)-18s %(levelname)-8s %(module)s:%(funcName)s: %(message)s')
+LOG_HANDLER.set_basic_config(True,logging.DEBUG)
 
 from cryptography import x509
 from cryptography.x509.oid import NameOID
@@ -19,12 +27,12 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 from urllib.parse import urlencode
-from pylutron_caseta.smartbridge import Smartbridge
+from syncer import sync
 
 from lutron_caseta_nodes.LutronCasetaNodes import SerenaHoneycombShade, QsWirelessShade, Scene
 
 # We need an event loop for  pylutron_caseta since we run in a
-# thread which doesn't have a loop
+#  which doesn't have a loop
 mainloop = asyncio.get_event_loop()
 
 LOGIN_SERVER = "device-login.lutron.com"
@@ -52,18 +60,12 @@ AUTHORIZE_URL = ("%soauth/authorize?%s" % (BASE_URL,
                                                "response_type": "code"
                                            })))
 
-class LutronCasetaController(polyinterface.Controller):
+class LutronCasetaController(Controller):
     def __init__(self, polyglot):
         super().__init__(polyglot)
         self.name = 'LutronCaseta Controller'
-        self.poly.onConfig(self.process_config)
-        # TODO: Allow controlling from Polyglot UI or ISY Driver...
-        level = logging.DEBUG
-        logging.getLogger('pylutron_caseta.smartbridge').setLevel(level)
-        logging.getLogger('pylutron_caseta.leap').setLevel(level)
-        logging.getLogger('requests').setLevel(level)
-        logging.getLogger('ssl').setLevel(level)
-        logging.getLogger('socket').setLevel(level)
+        self.connecting = False
+        #self.poly.onConfig(self.process_config)
 
     def get_priv_key(self):
         LOGGER.info("Getting private key")
@@ -176,6 +178,7 @@ class LutronCasetaController(polyinterface.Controller):
 
     # Did it this way based on "Async Fron Sync" here
     # https://www.aeracode.org/2018/02/19/python-async-simplified/
+    @sync
     async def _bridge_connect(self):
         self.sb = Smartbridge.create_tls(hostname=self.lutron_bridge_ip,
                                          keyfile='./caseta.key',
@@ -187,11 +190,43 @@ class LutronCasetaController(polyinterface.Controller):
             LOGGER.info("Successfully connected to bridge!")
         else:
             LOGGER.error("Could not connect to bridge")
+        self.connecting = False
+
+    def _bridge_start(self):
+        try:
+            #mainloop.run_until_complete(self._bridge_connect())
+            asyncio.set_event_loop(mainloop)
+            self._bridge_connect()
+        except:
+            LOGGER.error("Bridge connect failed",exc_info=True)
+#        try:
+#            while (True):
+#                #self.thread_event = Event()
+#                #self.thread_event.wait()
+#                time.sleep(5)
+#            LOGGER.info("Bridge thread event seen")
+#        except (KeyboardInterrupt, SystemExit):
+#            LOGGER.error("Bridge thread interrupted")
 
     def bridge_connect(self):
-        mainloop.run_until_complete(self._bridge_connect())
+        #mainloop.run_until_complete(self._bridge_connect())
+        #asyncio.run(self._bridge_connect())
+        self.connecting = True
+        self.connect_thread = Thread(target=self._bridge_start)
+        # With no deamon, and join it seems to work, but incoming messages from leap are not seen unless I run soemthing from the ISY.
+        self.connect_thread.daemon = True
+        self.connect_thread.start()
+        self.connect_thread.join() # Don't join, that causes it to wait and close?
 
     def is_connected(self):
+        i = 0 # 2 minutes
+        while self.connecting and i < 24:
+            LOGGER.info("Waiting for connection to initialize...")
+            time.sleep(5)
+            i += 1
+        if self.connecting:
+            LOGGER.error("Timed out waiting for connectiont to startup.")
+            return False
         if not self.sb.is_connected():
             LOGGER.info("Not connected to bridge, reconnecting...")
             self.bridge_connect()
@@ -204,6 +239,7 @@ class LutronCasetaController(polyinterface.Controller):
         serverdata = self.poly.get_server_data(check_profile=True)
         self.setDriver('ST', 1)
         LOGGER.info('Started Lutron Caseta NodeServer {}'.format(serverdata['version']))
+        self.mainloop = mainloop
         asyncio.set_event_loop(mainloop)
         self.hb = 0
         self.devices = dict()
@@ -238,7 +274,9 @@ class LutronCasetaController(polyinterface.Controller):
         or longPoll. No need to Super this method the parent version does nothing.
         The timer can be overriden in the server.json.
         """
-        self.update_status()
+        #LOGGER.debug("shoftPoll")
+        # Call update  to update the status
+        self.update()
 
     def longPoll(self):
         """
@@ -257,9 +295,14 @@ class LutronCasetaController(polyinterface.Controller):
         issue a reportDrivers() to each node manually.
         """
         self.check_params()
-        self.update_status()
         for node in self.nodes:
-            self.nodes[node].reportDrivers()
+            if node != self.address:
+                self.nodes[node].query()
+
+    def update(self):
+        for node in self.nodes:
+            if node != self.address:
+                self.nodes[node].update()
 
     def heartbeat(self):
         """
@@ -275,18 +318,15 @@ class LutronCasetaController(polyinterface.Controller):
             self.reportCmd("DOF",2)
             self.hb = 0
 
-    def update_status(self):
-        devices = self.sb.get_devices()
-        for device_id, device in devices.items():
-            if device_id in self.devices:
-                self.devices[device_id].update(device_id,device)
-
     def discover(self, *args, **kwargs):
         """
         Example
         Do discovery here. Does not have to be called discovery. Called from example
         controller start method and from DISCOVER command recieved from ISY as an exmaple.
         """
+        if not self.is_connected():
+            return False
+
         # self.addNode(LutronCasetaSmartBridge(self, self.address, 'smartbridgeaddr', 'Caseta Smart Bridge'))
         devices = self.sb.get_devices()
         scenes = self.sb.get_scenes()
@@ -302,16 +342,19 @@ class LutronCasetaController(polyinterface.Controller):
             elif device.get('type') == "QsWirelessShade":
                 NodeType = QsWirelessShade
             if not NodeType:
-                LOGGER.error("Unknown Node Type: {}".format(device))
+                LOGGER.error("Unsupported Node Type: {}".format(device))
                 continue
 
+            address = 'device' + str(device.get('device_id'))
+            LOGGER.info("Adding node: '{}' {}".format(device.get('name'),address))
             self.devices[device_id] = self.addNode(
                 NodeType(
                     self,
                     self.address,
-                    'device' + str(device.get('device_id')),
+                    address,
                     device.get('name'),
                     self.sb,
+                    device.get('device_id'),
                     device.get('type'),
                     device.get('zone'),
                     device.get('current_state')

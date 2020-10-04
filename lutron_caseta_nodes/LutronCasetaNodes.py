@@ -1,12 +1,15 @@
 """ Node classes used by the Node Server. """
-import polyinterface
+from polyinterface import Node,LOG_HANDLER,LOGGER
+from pylutron_caseta import BridgeDisconnectedError
 
+import sys
 import asyncio
+#import concurrent.futures._base.TimeoutError
+import concurrent
+from syncer import sync
+mainloop = asyncio.get_event_loop()
 
-LOGGER = polyinterface.LOGGER
-
-
-class BaseNode(polyinterface.Node):
+class BaseNode(Node):
     def __init__(self,
                  controller,
                  primary,
@@ -18,12 +21,31 @@ class BaseNode(polyinterface.Node):
         self.sb = sb
         self.name = name
         self.address = address
+        asyncio.set_event_loop(mainloop)
+
+    def start(self):
+        super().start()
 
     def send_command(self, device, value):
         LOGGER.info("Sending value to Smart Bridge for device {}: {}".format(device, value))
         LOGGER.info("is_connected={}".format(self.controller.is_connected()))
-        result = self.sb.set_value(device, value)
+        result = self.set_value(device, value)
         LOGGER.info("send_command result: {}".format(result))
+
+    #@sync
+    #async def set_value(self, device,value):
+    def set_value(self, device,value):
+        try:
+            return self.controller.mainloop.run_until_complete(self.sb.set_value(device, value))
+            #return await self.sb.set_value(device, value)
+        except concurrent.futures._base.TimeoutError:
+            LOGGER.error("Timed out...")
+        except BridgeDisconnectedError:
+            LOGGER.error('Bridge disconnected, should I try to reconnect?',exc_info=True)
+            done = True
+        except Exception as e:
+            LOGGER.error('set_value {}'.format(e),exc_info=True)
+            done = True
 
     def update(self,id,data):
         # Do nothing for now
@@ -40,6 +62,25 @@ class Scene(BaseNode):
         LOGGER.info("is_connected={}".format(self.controller.is_connected()))
         self.sb.activate_scene(address)
 
+    def callback(self):
+        LOGGER.info("callback")
+        self.update()
+
+    def query(self):
+        #self.controller.sb.devices[device_id].update(self.device_id,device)
+        #self.update()
+        #self.reportDrivers()
+        pass
+
+    def update(self):
+        #if self.controller.sb.devices[self.device_id]["current_state"] == 0:
+        #    self.setDriver('ST', 100)
+        #    self.setDriver('OL', 0)
+        #else:
+        #    self.setDriver('ST', 0)
+        #    self.setDriver('OL', self.controller.sb.devices[self.device_id]["current_state"])
+        pass
+
     drivers = []
     id = 'scene'
 
@@ -55,6 +96,7 @@ class SerenaHoneycombShade(BaseNode):
                  address,
                  name,
                  sb,
+                 device_id,
                  type,
                  zone,
                  current_state):
@@ -62,23 +104,49 @@ class SerenaHoneycombShade(BaseNode):
         self.sb = sb
         self.name = name
         self.address = address
+        self.device_id = device_id
         self.type = type
         self.zone = zone
         self.current_state = current_state
+
+    def start(self):
+        super().start()
+        self.sb.add_subscriber(self.device_id,self.callback)
+        self.set_drivers()
+
+    def callback(self):
+        LOGGER.info("callback")
+        self.set_drivers()
+
+    def query(self):
+        self.update()
+        self.reportDrivers()
+
+    def update(self):
+        self.controller.sb.devices[self.device_id].update()
+        self.set_drivers()
+
+    def set_drivers(self):
+        if self.controller.sb.devices[self.device_id]["current_state"] == 0:
+            self.setDriver('ST', 100)
+            self.setDriver('OL', 0)
+        else:
+            self.setDriver('ST', 0)
+            self.setDriver('OL', self.controller.sb.devices[self.device_id]["current_state"])
 
     def setOpen(self, command):
         LOGGER.info("setOpen: command {}".format(command))
         address = command['address'].replace('device', '', 1)
         self.send_command(address, 100)
-        self.setDriver('ST', 0)
-        self.setDriver('OL', 100)
+        #self.setDriver('ST', 0)
+        #self.setDriver('OL', 100)
 
     def setClose(self, command):
         LOGGER.info("setClose: command {}".format(command))
         address = command['address'].replace('device', '', 1)
         self.send_command(address, 0)
-        self.setDriver('ST', 100)
-        self.setDriver('OL', 0)
+        #self.setDriver('ST', 100)
+        #self.setDriver('OL', 0)
 
     def setOpenLevel(self, command):
         LOGGER.info("setOpenLevel: command {}".format(command))
