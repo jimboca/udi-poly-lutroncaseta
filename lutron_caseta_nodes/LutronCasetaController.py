@@ -178,7 +178,6 @@ class LutronCasetaController(Controller):
 
     # Did it this way based on "Async Fron Sync" here
     # https://www.aeracode.org/2018/02/19/python-async-simplified/
-    @sync
     async def _bridge_connect(self):
         self.sb = Smartbridge.create_tls(hostname=self.lutron_bridge_ip,
                                          keyfile='./caseta.key',
@@ -192,31 +191,13 @@ class LutronCasetaController(Controller):
             LOGGER.error("Could not connect to bridge")
         self.connecting = False
 
-    def _bridge_start(self):
-        try:
-            #mainloop.run_until_complete(self._bridge_connect())
-            asyncio.set_event_loop(mainloop)
-            self._bridge_connect()
-        except:
-            LOGGER.error("Bridge connect failed",exc_info=True)
-#        try:
-#            while (True):
-#                #self.thread_event = Event()
-#                #self.thread_event.wait()
-#                time.sleep(5)
-#            LOGGER.info("Bridge thread event seen")
-#        except (KeyboardInterrupt, SystemExit):
-#            LOGGER.error("Bridge thread interrupted")
-
     def bridge_connect(self):
-        #mainloop.run_until_complete(self._bridge_connect())
-        #asyncio.run(self._bridge_connect())
         self.connecting = True
-        self.connect_thread = Thread(target=self._bridge_start)
-        # With no deamon, and join it seems to work, but incoming messages from leap are not seen unless I run soemthing from the ISY.
-        self.connect_thread.daemon = True
+        self.connect_thread = Thread(target=mainloop.run_forever)
         self.connect_thread.start()
-        self.connect_thread.join() # Don't join, that causes it to wait and close?
+        #mainloop.call_soon_threadsafe(self._bridge_connect)
+        #mainloop.run_until_complete(self._bridge_connect)
+        asyncio.run_coroutine_threadsafe(self._bridge_connect(), mainloop)
 
     def is_connected(self):
         i = 0 # 2 minutes
@@ -276,7 +257,8 @@ class LutronCasetaController(Controller):
         """
         #LOGGER.debug("shoftPoll")
         # Call update  to update the status
-        self.update()
+        # No longer needed since we get callback's from the brdge :)
+        #self.update()
 
     def longPoll(self):
         """

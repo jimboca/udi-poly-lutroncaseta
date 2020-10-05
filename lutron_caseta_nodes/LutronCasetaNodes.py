@@ -7,7 +7,7 @@ import asyncio
 #import concurrent.futures._base.TimeoutError
 import concurrent
 from syncer import sync
-mainloop = asyncio.get_event_loop()
+#mainloop = asyncio.get_event_loop()
 
 class BaseNode(Node):
     def __init__(self,
@@ -21,38 +21,24 @@ class BaseNode(Node):
         self.sb = sb
         self.name = name
         self.address = address
-        asyncio.set_event_loop(mainloop)
+        #asyncio.set_event_loop(mainloop)
 
     def start(self):
         super().start()
 
-    def send_command(self, device, value):
+    def set_value(self, device, value):
         LOGGER.info("Sending value to Smart Bridge for device {}: {}".format(device, value))
         LOGGER.info("is_connected={}".format(self.controller.is_connected()))
-        result = self.set_value(device, value)
-        LOGGER.info("send_command result: {}".format(result))
-
-    #@sync
-    #async def set_value(self, device,value):
-    def set_value(self, device,value):
         try:
-            return self.controller.mainloop.run_until_complete(self.sb.set_value(device, value))
-            #return await self.sb.set_value(device, value)
-        except concurrent.futures._base.TimeoutError:
-            LOGGER.error("Timed out...")
-        except BridgeDisconnectedError:
-            LOGGER.error('Bridge disconnected, should I try to reconnect?',exc_info=True)
-            done = True
+            result = asyncio.run_coroutine_threadsafe(self.sb.set_value(device, value), self.controller.mainloop)
         except Exception as e:
             LOGGER.error('set_value {}'.format(e),exc_info=True)
-            done = True
+            result = False
+        LOGGER.info("set_value result: {}".format(result))
 
     def update(self,id,data):
         # Do nothing for now
         pass
-        #LOGGER.info("update: {} {}".format(id,data))
-        #val = self.sb.is_on(id)
-        #LOGGER.info("update: {}".format(val))
 
 class Scene(BaseNode):
     def activate(self, command):
@@ -67,18 +53,9 @@ class Scene(BaseNode):
         self.update()
 
     def query(self):
-        #self.controller.sb.devices[device_id].update(self.device_id,device)
-        #self.update()
-        #self.reportDrivers()
         pass
 
     def update(self):
-        #if self.controller.sb.devices[self.device_id]["current_state"] == 0:
-        #    self.setDriver('ST', 100)
-        #    self.setDriver('OL', 0)
-        #else:
-        #    self.setDriver('ST', 0)
-        #    self.setDriver('OL', self.controller.sb.devices[self.device_id]["current_state"])
         pass
 
     drivers = []
@@ -137,16 +114,13 @@ class SerenaHoneycombShade(BaseNode):
     def setOpen(self, command):
         LOGGER.info("setOpen: command {}".format(command))
         address = command['address'].replace('device', '', 1)
-        self.send_command(address, 100)
-        #self.setDriver('ST', 0)
-        #self.setDriver('OL', 100)
+        self.set_value(address, 100)
+
 
     def setClose(self, command):
         LOGGER.info("setClose: command {}".format(command))
         address = command['address'].replace('device', '', 1)
-        self.send_command(address, 0)
-        #self.setDriver('ST', 100)
-        #self.setDriver('OL', 0)
+        self.set_value(address, 0)
 
     def setOpenLevel(self, command):
         LOGGER.info("setOpenLevel: command {}".format(command))
@@ -155,12 +129,7 @@ class SerenaHoneycombShade(BaseNode):
             ol = int(command['value'])
         else:
             ol = int(command.get('query', {}).get('OL.uom51'))
-        self.send_command(address, ol)
-        if ol > 0:
-            self.setDriver('ST', 0)
-        else:
-            self.setDriver('ST', 100)
-        self.setDriver('OL', ol)
+        self.set_value(address, ol)
 
     drivers = [
         {'driver': 'ST', 'value': 0, 'uom': 79},
