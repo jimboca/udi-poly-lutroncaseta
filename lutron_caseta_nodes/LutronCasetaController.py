@@ -1,4 +1,5 @@
-import polyinterface
+
+from polyinterface import Controller,LOG_HANDLER,LOGGER
 
 import asyncio
 import json
@@ -6,6 +7,18 @@ import requests
 import socket
 import ssl
 import logging
+import time
+from threading import Thread,Event
+
+#import pylutron_caseta.smartbridge as smartbridge
+from pylutron_caseta.smartbridge import Smartbridge
+
+from pylutron_caseta import (FAN_MEDIUM, OCCUPANCY_GROUP_OCCUPIED,
+                             OCCUPANCY_GROUP_UNOCCUPIED)
+
+#logging.basicConfig(format='%(asctime)s %(levelname)s:%(message)s', level=logging.DEBUG)
+#LOG_HANDLER.set_log_format('%(asctime)s %(threadName)-10s %(name)-18s %(levelname)-8s %(module)s:%(funcName)s: %(message)s')
+LOG_HANDLER.set_basic_config(True,logging.DEBUG)
 
 from cryptography import x509
 from cryptography.x509.oid import NameOID
@@ -15,15 +28,13 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 from urllib.parse import urlencode
-from pylutron_caseta.smartbridge import Smartbridge
+from syncer import sync
 
 from lutron_caseta_nodes.LutronCasetaNodes import SerenaHoneycombShade, QsWirelessShade, Scene
 
 # We need an event loop for  pylutron_caseta since we run in a
-# thread which doesn't have a loop
+#  which doesn't have a loop
 mainloop = asyncio.get_event_loop()
-
-LOGGER = polyinterface.LOGGER
 
 LOGIN_SERVER = "device-login.lutron.com"
 APP_CLIENT_ID = ("e001a4471eb6152b7b3f35e549905fd8589dfcf57eb680b6fb37f20878c"
@@ -50,11 +61,12 @@ AUTHORIZE_URL = ("%soauth/authorize?%s" % (BASE_URL,
                                                "response_type": "code"
                                            })))
 
-class LutronCasetaController(polyinterface.Controller):
+class LutronCasetaController(Controller):
     def __init__(self, polyglot):
         super().__init__(polyglot)
         self.name = 'LutronCaseta Controller'
-        self.poly.onConfig(self.process_config)
+        self.connecting = False
+        #self.poly.onConfig(self.process_config)
 
     def get_priv_key(self):
         LOGGER.info("Getting private key")
@@ -178,14 +190,29 @@ class LutronCasetaController(polyinterface.Controller):
             LOGGER.info("Successfully connected to bridge!")
         else:
             LOGGER.error("Could not connect to bridge")
+        self.connecting = False
 
     def bridge_connect(self):
-        mainloop.run_until_complete(self._bridge_connect())
+        self.connecting = True
+        self.connect_thread = Thread(target=mainloop.run_forever)
+        self.connect_thread.start()
+        #mainloop.call_soon_threadsafe(self._bridge_connect)
+        #mainloop.run_until_complete(self._bridge_connect)
+        asyncio.run_coroutine_threadsafe(self._bridge_connect(), mainloop)
 
     def is_connected(self):
+        i = 0 # 2 minutes
+        while self.connecting and i < 24:
+            LOGGER.info("Waiting for connection to initialize...")
+            time.sleep(5)
+            i += 1
+        if self.connecting:
+            LOGGER.error("Timed out waiting for connectiont to startup.")
+            return False
         if not self.sb.is_connected():
             LOGGER.info("Not connected to bridge, reconnecting...")
             self.bridge_connect()
+        return self.sb.is_connected()
 
     def start(self):
         LOGGER.info('Started LutronCaseta NodeServer')
@@ -194,8 +221,11 @@ class LutronCasetaController(polyinterface.Controller):
         serverdata = self.poly.get_server_data(check_profile=True)
         self.setDriver('ST', 1)
         LOGGER.info('Started Lutron Caseta NodeServer {}'.format(serverdata['version']))
-        # TODO: Allow controlling from Polyglot UI or ISY Driver...
-        logging.getLogger('pylutron_caseta').setLevel(logging.DEBUG)
+        if self.getDriver('GV1') is None:
+            LOGGER.warning('Updating myself since there is no GV1')
+            self.addNode(self,update=True)
+        self.set_debug_level()
+        self.mainloop = mainloop
         asyncio.set_event_loop(mainloop)
         self.hb = 0
         self.devices = dict()
@@ -230,7 +260,10 @@ class LutronCasetaController(polyinterface.Controller):
         or longPoll. No need to Super this method the parent version does nothing.
         The timer can be overriden in the server.json.
         """
-        self.update_status()
+        #LOGGER.debug("shoftPoll")
+        # Call update  to update the status
+        # No longer needed since we get callback's from the brdge :)
+        #self.update()
 
     def longPoll(self):
         """
@@ -249,9 +282,14 @@ class LutronCasetaController(polyinterface.Controller):
         issue a reportDrivers() to each node manually.
         """
         self.check_params()
-        self.update_status()
         for node in self.nodes:
-            self.nodes[node].reportDrivers()
+            if node != self.address:
+                self.nodes[node].query()
+
+    def update(self):
+        for node in self.nodes:
+            if node != self.address:
+                self.nodes[node].update()
 
     def heartbeat(self):
         """
@@ -267,18 +305,15 @@ class LutronCasetaController(polyinterface.Controller):
             self.reportCmd("DOF",2)
             self.hb = 0
 
-    def update_status(self):
-        devices = self.sb.get_devices()
-        for device_id, device in devices.items():
-            if device_id in self.devices:
-                self.devices[device_id].update(device_id,device)
-
     def discover(self, *args, **kwargs):
         """
         Example
         Do discovery here. Does not have to be called discovery. Called from example
         controller start method and from DISCOVER command recieved from ISY as an exmaple.
         """
+        if not self.is_connected():
+            return False
+
         # self.addNode(LutronCasetaSmartBridge(self, self.address, 'smartbridgeaddr', 'Caseta Smart Bridge'))
         devices = self.sb.get_devices()
         scenes = self.sb.get_scenes()
@@ -294,16 +329,19 @@ class LutronCasetaController(polyinterface.Controller):
             elif device.get('type') == "QsWirelessShade":
                 NodeType = QsWirelessShade
             if not NodeType:
-                LOGGER.error("Unknown Node Type: {}".format(device))
+                LOGGER.error("Unsupported Node Type: {}".format(device))
                 continue
 
+            address = 'device' + str(device.get('device_id'))
+            LOGGER.info("Adding node: '{}' {}".format(device.get('name'),address))
             self.devices[device_id] = self.addNode(
                 NodeType(
                     self,
                     self.address,
-                    'device' + str(device.get('device_id')),
+                    address,
                     device.get('name'),
                     self.sb,
+                    device.get('device_id'),
                     device.get('type'),
                     device.get('zone'),
                     device.get('current_state')
@@ -371,20 +409,52 @@ class LutronCasetaController(polyinterface.Controller):
         else:
             self.removeNotice('addconfig')
 
-    def remove_notice_test(self,command):
-        LOGGER.info('remove_notice_test: notices={}'.format(self.poly.config['notices']))
-        # Remove all existing notices
-        self.removeNotice('test')
-
-    def remove_notices_all(self,command):
-        LOGGER.info('remove_notices_all: notices={}'.format(self.poly.config['notices']))
-        # Remove all existing notices
-        self.removeNoticesAll()
+    def set_debug_level(self,level=None):
+        LOGGER.debug('set_debug_level: {}'.format(level))
+        if level is None:
+            level = self.getDriver('GV1')
+            if level is None:
+                level = 30
+        level = int(level)
+        if level == 0:
+            level = 30
+        LOGGER.info('set_debug_level: Set GV1 to {}'.format(level))
+        self.setDriver('GV1', level)
+        # 0=All 10=Debug are the same because 0 (NOTSET) doesn't show everything.
+        if level <= 10:
+            LOGGER.setLevel(logging.DEBUG)
+            if level <= 9:
+                logging.getLogger('pylutron_caseta.smartbridge').setLevel(logging.DEBUG)
+                if level <= 8:
+                    logging.getLogger('pylutron_caseta.leap').setLevel(logging.DEBUG)
+                else:
+                    logging.getLogger('pylutron_caseta.leap').setLevel(logging.WARNING)
+            else:
+                logging.getLogger('pylutron_caseta.leap').setLevel(logging.WARNING)
+                logging.getLogger('pylutron_caseta.smartbridge').setLevel(logging.WARNING)
+        else:
+            logging.getLogger('pylutron_caseta.leap').setLevel(logging.WARNING)
+            logging.getLogger('pylutron_caseta.smartbridge').setLevel(logging.WARNING)
+            if level == 20:
+                LOGGER.setLevel(logging.INFO)
+            elif level == 30:
+                LOGGER.setLevel(logging.WARNING)
+            elif level == 40:
+                LOGGER.setLevel(logging.ERROR)
+            elif level == 50:
+                LOGGER.setLevel(logging.CRITICAL)
+            else:
+                LOGGER.debug("set_debug_level: Unknown level {}".format(level))
 
     def update_profile(self,command):
         LOGGER.info('update_profile:')
         st = self.poly.installprofile()
         return st
+
+    def cmd_set_debug_mode(self,command):
+        val = int(command.get('value'))
+        LOGGER.debug("cmd_set_debug_mode: {}".format(val))
+        self.set_debug_level(val)
 
     """
     Optional.
@@ -401,7 +471,9 @@ class LutronCasetaController(polyinterface.Controller):
         'QUERY': query,
         'DISCOVER': discover,
         'UPDATE_PROFILE': update_profile,
-        'REMOVE_NOTICES_ALL': remove_notices_all,
-        'REMOVE_NOTICE_TEST': remove_notice_test
+        'SET_DM': cmd_set_debug_mode,
     }
-    drivers = [{'driver': 'ST', 'value': 1, 'uom': 2}]
+    drivers = [
+        {'driver': 'ST', 'value': 1, 'uom': 2},
+        {'driver': 'GV1', 'value': 30, 'uom': 25} # Debug (Log) Mode, default=30=Warning
+    ]

@@ -1,4 +1,7 @@
 <editors>
+    <editor id="I_DEBUG">
+      <range uom="25" subset="8,9,10,20,30,40,50" nls="CDM"/>
+    </editor>
     <!-- Boolean -->
     <editor id="bool">
         <range uom="2" subset="0,1" />
