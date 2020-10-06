@@ -6,7 +6,6 @@ import sys
 import asyncio
 #import concurrent.futures._base.TimeoutError
 import concurrent
-from syncer import sync
 #mainloop = asyncio.get_event_loop()
 
 class BaseNode(Node):
