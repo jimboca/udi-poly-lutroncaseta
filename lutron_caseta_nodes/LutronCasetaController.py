@@ -28,7 +28,6 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 from urllib.parse import urlencode
-from syncer import sync
 
 from lutron_caseta_nodes.LutronCasetaNodes import SerenaHoneycombShade, QsWirelessShade, Scene
 
