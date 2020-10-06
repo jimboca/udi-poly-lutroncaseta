@@ -1,3 +1,4 @@
+
 from polyinterface import Controller,LOG_HANDLER,LOGGER
 
 import asyncio
@@ -220,6 +221,10 @@ class LutronCasetaController(Controller):
         serverdata = self.poly.get_server_data(check_profile=True)
         self.setDriver('ST', 1)
         LOGGER.info('Started Lutron Caseta NodeServer {}'.format(serverdata['version']))
+        if self.getDriver('GV1') is None:
+            LOGGER.warning('Updating myself since there is no GV1')
+            self.addNode(self,update=True)
+        self.set_debug_level()
         self.mainloop = mainloop
         asyncio.set_event_loop(mainloop)
         self.hb = 0
@@ -404,20 +409,52 @@ class LutronCasetaController(Controller):
         else:
             self.removeNotice('addconfig')
 
-    def remove_notice_test(self,command):
-        LOGGER.info('remove_notice_test: notices={}'.format(self.poly.config['notices']))
-        # Remove all existing notices
-        self.removeNotice('test')
-
-    def remove_notices_all(self,command):
-        LOGGER.info('remove_notices_all: notices={}'.format(self.poly.config['notices']))
-        # Remove all existing notices
-        self.removeNoticesAll()
+    def set_debug_level(self,level=None):
+        LOGGER.debug('set_debug_level: {}'.format(level))
+        if level is None:
+            level = self.getDriver('GV1')
+            if level is None:
+                level = 30
+        level = int(level)
+        if level == 0:
+            level = 30
+        LOGGER.info('set_debug_level: Set GV1 to {}'.format(level))
+        self.setDriver('GV1', level)
+        # 0=All 10=Debug are the same because 0 (NOTSET) doesn't show everything.
+        if level <= 10:
+            LOGGER.setLevel(logging.DEBUG)
+            if level <= 9:
+                logging.getLogger('pylutron_caseta.smartbridge').setLevel(logging.DEBUG)
+                if level <= 8:
+                    logging.getLogger('pylutron_caseta.leap').setLevel(logging.DEBUG)
+                else:
+                    logging.getLogger('pylutron_caseta.leap').setLevel(logging.WARNING)
+            else:
+                logging.getLogger('pylutron_caseta.leap').setLevel(logging.WARNING)
+                logging.getLogger('pylutron_caseta.smartbridge').setLevel(logging.WARNING)
+        else:
+            logging.getLogger('pylutron_caseta.leap').setLevel(logging.WARNING)
+            logging.getLogger('pylutron_caseta.smartbridge').setLevel(logging.WARNING)
+            if level == 20:
+                LOGGER.setLevel(logging.INFO)
+            elif level == 30:
+                LOGGER.setLevel(logging.WARNING)
+            elif level == 40:
+                LOGGER.setLevel(logging.ERROR)
+            elif level == 50:
+                LOGGER.setLevel(logging.CRITICAL)
+            else:
+                LOGGER.debug("set_debug_level: Unknown level {}".format(level))
 
     def update_profile(self,command):
         LOGGER.info('update_profile:')
         st = self.poly.installprofile()
         return st
+
+    def cmd_set_debug_mode(self,command):
+        val = int(command.get('value'))
+        LOGGER.debug("cmd_set_debug_mode: {}".format(val))
+        self.set_debug_level(val)
 
     """
     Optional.
@@ -434,7 +471,9 @@ class LutronCasetaController(Controller):
         'QUERY': query,
         'DISCOVER': discover,
         'UPDATE_PROFILE': update_profile,
-        'REMOVE_NOTICES_ALL': remove_notices_all,
-        'REMOVE_NOTICE_TEST': remove_notice_test
+        'SET_DM': cmd_set_debug_mode,
     }
-    drivers = [{'driver': 'ST', 'value': 1, 'uom': 2}]
+    drivers = [
+        {'driver': 'ST', 'value': 1, 'uom': 2},
+        {'driver': 'GV1', 'value': 30, 'uom': 25} # Debug (Log) Mode, default=30=Warning
+    ]

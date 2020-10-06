@@ -3,9 +3,17 @@ ND-controller-NAME = Lutron Caseta NodeServer Controller
 CMD-ctl-QUERY"-NAME = Query
 CMD-ctl-DISCOVER-NAME = Re-Discover
 CMD-ctl-UPDATE_PROFILE-NAME = Update Profile
-CMD-ctl-REMOVE_NOTICES_ALL-NAME = Remove All Notices
-CMD-ctl-REMOVE_NOTICE_TEST-NAME = Remove Notice Test
+CMD-ctl-SET_DM-NAME = Set Logger Level
 ST-ctl-ST-NAME = NodeServer Online
+
+# Debug/Logger Modes
+CDM-8 = Debug + Bridge + LEAP
+CDM-9 = Debug + Bridge
+CDM-10 = Debug
+CDM-20 = Info All
+CDM-30 = Warning All
+CDM-40 = Error All
+CDM-50 = Critical All
 
 # Serena Shade
 ND-serenashade-NAME = Serena Shade

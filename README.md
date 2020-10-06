@@ -15,3 +15,8 @@ The `oauth_code` can be obtained by following the link generated on the Configur
 Once the IP and OAUTH code are saved, restart the node server to apply the changes.
 
 The node server will then connect to your smart bridge and create nodes in the ISY994i for each of your Lutron devices.
+
+### Change History
+
+0.0.7: JimBoCA
+  - Compatible with pylutron_caseta dev branch (not yet released)
