@@ -46,7 +46,7 @@ class Scene(BaseNode):
         address = command['address'].replace('scene', '', 1)
         LOGGER.info("activate: address {}".format(address))
         LOGGER.info("is_connected={}".format(self.controller.is_connected()))
-        self.sb.activate_scene(address)
+        asyncio.run(self.sb.activate_scene(address))
 
     def callback(self):
         LOGGER.info("callback")
@@ -63,6 +63,7 @@ class Scene(BaseNode):
 
     commands = {
         'DON': activate,
+        'DOF': activate
     }
 
 
