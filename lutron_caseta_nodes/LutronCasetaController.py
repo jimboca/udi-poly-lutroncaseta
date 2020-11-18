@@ -13,7 +13,8 @@ from threading import Thread,Event
 #import pylutron_caseta.smartbridge as smartbridge
 from pylutron_caseta.smartbridge import Smartbridge
 
-from pylutron_caseta import (FAN_MEDIUM) # OCCUPANCY_GROUP_OCCUPIED, OCCUPANCY_GROUP_UNOCCUPIED
+from pylutron_caseta import (FAN_MEDIUM, OCCUPANCY_GROUP_OCCUPIED,
+                             OCCUPANCY_GROUP_UNOCCUPIED)
 
 #logging.basicConfig(format='%(asctime)s %(levelname)s:%(message)s', level=logging.DEBUG)
 #LOG_HANDLER.set_log_format('%(asctime)s %(threadName)-10s %(name)-18s %(levelname)-8s %(module)s:%(funcName)s: %(message)s')
