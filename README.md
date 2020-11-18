@@ -18,5 +18,5 @@ The node server will then connect to your smart bridge and create nodes in the I
 
 ### Change History
 
-0.0.7: JimBoCA
-  - Compatible with pylutron_caseta dev branch (not yet released)
+0.0.7: JimBoCA 11/17/2020
+  - Compatible with pylutron_caseta version 7.0.2 which is a major improvement, real time updates now passed to nodeserver!
